@@ -1,0 +1,29 @@
+name: Tagesbriefing für Teams
+
+on:
+  schedule:
+    # 06:00 UTC = 08:00 Uhr MESZ (Sommerzeit) bzw. 07:00 Uhr MEZ (Winterzeit)
+    # Zeit hier nach Bedarf anpassen: https://crontab.guru
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}  # erlaubt manuelles Auslösen über den "Run workflow"-Button
+
+jobs:
+  briefing:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Abhängigkeiten installieren
+        run: pip install -r requirements.txt
+
+      - name: Briefing generieren und posten
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+        run: python daily_briefing.py
