@@ -2,21 +2,25 @@
 Tagesbriefing für Chase Cards Streams
 --------------------------------------
 Generiert per Anthropic API (mit Websuche) ein tägliches Kurz+Lang-Briefing zu
-NFL, NBA, MLB, UEFA, WWE, Tennis, Marvel und Disney und postet es in einen
-Microsoft-Teams-Channel (per Workflows-Webhook).
+NFL, NBA, MLB, UEFA, WWE, Tennis, Marvel und Disney und schickt es per E-Mail
+(über Resend) an die Teams-Kanal-E-Mail-Adresse (kommt dort automatisch als
+Beitrag an).
 
 Benötigte Umgebungsvariablen (als GitHub Secrets hinterlegen):
-  ANTHROPIC_API_KEY   -> euer Anthropic API Key
-  TEAMS_WEBHOOK_URL   -> die Webhook-URL aus dem Teams-Workflow (Schritt 1 der Anleitung)
+  ANTHROPIC_API_KEY     -> euer Anthropic API Key
+  RESEND_API_KEY        -> API-Key von resend.com
+  TEAMS_CHANNEL_EMAIL   -> die E-Mail-Adresse des Teams-Kanals
+  SENDER_EMAIL          -> Absenderadresse auf eurer verifizierten Domain,
+                            z.B. briefing@chase-cards.de
 """
 
 import os
 import sys
-import json
 from datetime import datetime
 
 import anthropic
 import requests
+import markdown as md_lib
 
 MODEL = "claude-sonnet-5"
 
@@ -46,22 +50,29 @@ def generate_briefing() -> str:
         messages=[{"role": "user", "content": PROMPT}],
     )
 
-    # Alle Text-Blöcke der Antwort zusammensetzen (Websuche kann mehrere Blöcke erzeugen)
     text_parts = [block.text for block in response.content if block.type == "text"]
     return "\n\n".join(text_parts).strip()
 
 
-def post_to_teams(webhook_url: str, message: str) -> None:
-    # Standard-Payload für den Teams-"Workflows"-Webhook (Vorlage "Post to a channel
-    # when a webhook request is received"). Falls euer Flow ein anderes Feld als
-    # "text" erwartet, hier den Feldnamen anpassen (siehe Beispiel-Payload beim
-    # Einrichten des Workflows in Teams).
-    payload = {"text": message}
+def send_email_to_teams(briefing_markdown: str) -> None:
+    api_key = os.environ["RESEND_API_KEY"]
+    sender = os.environ["SENDER_EMAIL"]
+    recipient = os.environ["TEAMS_CHANNEL_EMAIL"]
+
+    html_body = md_lib.markdown(briefing_markdown, extensions=["tables"])
 
     resp = requests.post(
-        webhook_url,
-        headers={"Content-Type": "application/json"},
-        data=json.dumps(payload),
+        "https://api.resend.com/emails",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "from": sender,
+            "to": [recipient],
+            "subject": f"Tagesbriefing {datetime.now().strftime('%d.%m.%Y')}",
+            "html": html_body,
+        },
         timeout=30,
     )
     resp.raise_for_status()
@@ -79,12 +90,12 @@ def main() -> None:
         sys.exit(1)
 
     try:
-        post_to_teams(os.environ["TEAMS_WEBHOOK_URL"], briefing)
+        send_email_to_teams(briefing)
     except Exception as exc:  # noqa: BLE001
-        print(f"Fehler beim Posten in Teams: {exc}", file=sys.stderr)
+        print(f"Fehler beim E-Mail-Versand an Teams: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    print("Briefing erfolgreich generiert und in Teams gepostet.")
+    print("Briefing erfolgreich generiert und per E-Mail an Teams gesendet.")
 
 
 if __name__ == "__main__":
